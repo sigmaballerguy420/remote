@@ -7,7 +7,6 @@ const { spawn } = require('child_process');
 const app = express();
 const PORT = 8080;
 
-// Serve static files
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
@@ -20,12 +19,10 @@ const server = app.listen(PORT, () => {
 
 const wss = new WebSocket.Server({ server });
 
-// Frame queue management
-let activeFrame = null;
-let frameQueue = [];
-let isCapturing = false;
+// Track active keys
+const activeKeys = new Set();
 
-// Optimized screen capture using maim (faster than scrot)
+// Optimized screen capture
 async function captureScreen() {
     const timestamp = Date.now();
     const filename = `/tmp/screenshot_${timestamp}.jpg`;
@@ -33,7 +30,6 @@ async function captureScreen() {
     return new Promise((resolve, reject) => {
         exec(`maim --quality 5 --delay 0.1 ${filename}`, (error) => {
             if (error) {
-                // Fallback to scrot if maim fails
                 exec(`scrot -o -q 50 ${filename}`, (error) => {
                     if (error) return reject(error);
                     readAndSend(filename, resolve, reject);
@@ -52,27 +48,35 @@ function readAndSend(filename, resolve, reject) {
     });
 }
 
-// Input control functions (same as before)
+// Input control functions
 function moveMouse(x, y) { spawn('xdotool', ['mousemove', '--', x, y]); }
 function mouseClick(button) { spawn('xdotool', ['click', '--sync', button]); }
 function mouseDown(button) { spawn('xdotool', ['mousedown', button]); }
 function mouseUp(button) { spawn('xdotool', ['mouseup', button]); }
-function sendKeys(keys) { 
+
+function sendKeys(keys) {
     spawn('xdotool', ['getactivewindow', 'windowfocus', '--sync']);
     spawn('xdotool', ['type', '--clearmodifiers', '--delay', '10', keys]); 
 }
 
+function keyDown(key) {
+    if (!activeKeys.has(key)) {
+        activeKeys.add(key);
+        spawn('xdotool', ['keydown', key]);
+    }
+}
+
+function keyUp(key) {
+    if (activeKeys.has(key)) {
+        activeKeys.delete(key);
+        spawn('xdotool', ['keyup', key]);
+    }
+}
+
 // Frame capture loop
 async function captureLoop(ws) {
-    if (isCapturing) return;
-    isCapturing = true;
-    
     try {
         const frame = await captureScreen();
-        
-        // Only keep the latest frame
-        frameQueue = [frame];
-        
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
                 type: 'screen',
@@ -82,8 +86,6 @@ async function captureLoop(ws) {
         }
     } catch (error) {
         console.error('Capture error:', error);
-    } finally {
-        isCapturing = false;
     }
 }
 
@@ -101,7 +103,24 @@ wss.on('connection', (ws) => {
                 case 'mouseClick': mouseClick(data.button); break;
                 case 'mouseDown': mouseDown(data.button); break;
                 case 'mouseUp': mouseUp(data.button); break;
-                case 'keyPress': sendKeys(data.keys); break;
+                case 'keyDown': keyDown(data.key); break;
+                case 'keyUp': keyUp(data.key); break;
+                case 'keyStates': 
+                    // Sync key states
+                    const currentKeys = new Set(data.keys);
+                    // Release keys no longer pressed
+                    activeKeys.forEach(key => {
+                        if (!currentKeys.has(key)) {
+                            keyUp(key);
+                        }
+                    });
+                    // Press new keys
+                    currentKeys.forEach(key => {
+                        if (!activeKeys.has(key)) {
+                            keyDown(key);
+                        }
+                    });
+                    break;
             }
         } catch (error) {
             console.error('Message error:', error);
@@ -111,10 +130,13 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         console.log('Client disconnected');
         clearInterval(captureInterval);
+        // Release all keys when client disconnects
+        activeKeys.forEach(key => keyUp(key));
     });
 
     ws.on('error', (error) => {
         console.error('WebSocket error:', error);
         clearInterval(captureInterval);
+        activeKeys.forEach(key => keyUp(key));
     });
 });
