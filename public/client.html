@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Game-Ready Remote Control</title>
+    <title>Gaming Remote Control</title>
     <style>
         :root {
             --primary-color: #4285f4;
@@ -19,7 +19,6 @@
             display: flex;
             flex-direction: column;
             user-select: none;
-            -webkit-user-select: none;
         }
         #header {
             background-color: #fff;
@@ -63,7 +62,6 @@
             position: relative;
             overflow: hidden;
             background-color: #000;
-            touch-action: none;
         }
         #screenView {
             width: 100%;
@@ -185,7 +183,7 @@
 </head>
 <body>
     <div id="header">
-        <h1 id="title">Game-Ready Remote Control</h1>
+        <h1 id="title">Gaming Remote Control</h1>
         <div id="controls">
             <button id="fullscreenBtn" class="btn btn-primary">Fullscreen</button>
             <button id="disconnectBtn" class="btn btn-danger">Disconnect</button>
@@ -209,7 +207,7 @@
             </div>
         </div>
         <div id="latencyWarning">High Latency: Dropping Frames</div>
-        <div id="keyStateInfo">Keys held: 0</div>
+        <div id="keyStateInfo">Keys held: none</div>
     </div>
     <div id="fullscreenOverlay">
         <img id="fullscreenImage" src="" alt="Remote screen fullscreen">
@@ -243,10 +241,16 @@
         let isRendering = false;
         let highLatencyMode = false;
         
-        // Key state tracking for gaming
+        // Key state tracking
         const pressedKeys = new Set();
-        let lastKeyUpdateTime = 0;
-        const keyUpdateInterval = 50; // ms between key state updates
+        let lastKeyStateUpdate = 0;
+        const keyStateUpdateInterval = 50; // ms between key state updates
+        
+        // Special keys that should be ignored
+        const ignoredKeys = new Set([
+            'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+            'Alt', 'Control', 'Meta', 'Shift', 'CapsLock', 'Tab', 'Escape'
+        ]);
 
         // Connect to WebSocket server
         function connect() {
@@ -271,9 +275,11 @@
                 const now = Date.now();
                 const latency = now - data.timestamp;
                 
+                // Enter high latency mode if latency > 300ms
                 highLatencyMode = latency > 300;
                 latencyWarning.style.display = highLatencyMode ? 'block' : 'none';
                 
+                // In high latency mode, we prioritize newest frames only
                 if (highLatencyMode) {
                     if (!isRendering && (!pendingFrame || data.timestamp > pendingFrame.timestamp)) {
                         pendingFrame = data;
@@ -375,6 +381,7 @@
             remoteCursor.style.display = 'none';
             keyStateInfo.style.display = 'none';
             pressedKeys.clear();
+            updateKeyStateInfo();
             setTimeout(connect, 5000);
         }
 
@@ -383,7 +390,6 @@
             updateStatus('Connection Error', 'disconnected');
             remoteCursor.style.display = 'none';
             keyStateInfo.style.display = 'none';
-            pressedKeys.clear();
         }
 
         // Update connection status
@@ -452,80 +458,84 @@
 
         // Send mouse events to server
         function sendMouseMove(x, y) {
-            socket.send(JSON.stringify({
-                type: 'mouseMove',
-                x: x,
-                y: y
-            }));
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'mouseMove',
+                    x: x,
+                    y: y
+                }));
+            }
         }
 
         function sendMouseDown(button) {
-            socket.send(JSON.stringify({
-                type: 'mouseDown',
-                button: button
-            }));
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'mouseDown',
+                    button: button
+                }));
+            }
         }
 
         function sendMouseUp(button) {
-            socket.send(JSON.stringify({
-                type: 'mouseUp',
-                button: button
-            }));
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'mouseUp',
+                    button: button
+                }));
+            }
         }
 
-        // Key state management for gaming
-        function updateKeyStates() {
-            if (!socket || socket.readyState !== WebSocket.OPEN || pressedKeys.size === 0) return;
-            
-            const now = Date.now();
-            if (now - lastKeyUpdateTime < keyUpdateInterval) return;
-            lastKeyUpdateTime = now;
-            
-            socket.send(JSON.stringify({
-                type: 'keyStates',
-                keys: Array.from(pressedKeys)
-            }));
-            
-            keyStateInfo.textContent = `Keys held: ${pressedKeys.size}`;
+        // Key state management
+        function updateKeyStateInfo() {
+            const keys = pressedKeys.size > 0 
+                ? Array.from(pressedKeys).join(', ') 
+                : 'none';
+            keyStateInfo.textContent = `Keys held: ${keys}`;
+        }
+
+        function sendKeyStateToServer() {
+            if (socket.readyState === WebSocket.OPEN && pressedKeys.size > 0) {
+                socket.send(JSON.stringify({
+                    type: 'keyState',
+                    keys: Array.from(pressedKeys)
+                }));
+            }
         }
 
         function handleKeyDown(e) {
             if (!socket || socket.readyState !== WebSocket.OPEN) return;
-            
-            // Ignore modifier keys and input fields
-            if (e.ctrlKey || e.altKey || e.metaKey) return;
+            if (ignoredKeys.has(e.key)) return;
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             
-            // Prevent default for most keys except function keys
-            if (!['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12'].includes(e.key)) {
-                e.preventDefault();
-            }
+            e.preventDefault();
             
-            // Add to pressed keys set if not already present
             if (!pressedKeys.has(e.key)) {
                 pressedKeys.add(e.key);
+                updateKeyStateInfo();
+                // Immediately send key down
                 socket.send(JSON.stringify({
                     type: 'keyDown',
                     key: e.key
                 }));
-                keyStateInfo.textContent = `Keys held: ${pressedKeys.size}`;
             }
         }
 
         function handleKeyUp(e) {
+            if (ignoredKeys.has(e.key)) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            e.preventDefault();
+            
             if (pressedKeys.has(e.key)) {
                 pressedKeys.delete(e.key);
-                if (socket && socket.readyState === WebSocket.OPEN) {
+                updateKeyStateInfo();
+                // Immediately send key up
+                if (socket.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify({
                         type: 'keyUp',
                         key: e.key
                     }));
                 }
-                keyStateInfo.textContent = `Keys held: ${pressedKeys.size}`;
-            }
-            
-            if (!['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12'].includes(e.key)) {
-                e.preventDefault();
             }
         }
 
@@ -548,17 +558,6 @@
         // Disconnect functionality
         function disconnect() {
             if (socket) {
-                // Release all keys before disconnecting
-                if (pressedKeys.size > 0) {
-                    const keysToRelease = Array.from(pressedKeys);
-                    keysToRelease.forEach(key => {
-                        socket.send(JSON.stringify({
-                            type: 'keyUp',
-                            key: key
-                        }));
-                    });
-                    pressedKeys.clear();
-                }
                 socket.close();
             }
         }
@@ -591,16 +590,17 @@
             window.addEventListener('resize', updateResolution);
             window.addEventListener('blur', () => {
                 // Release all keys when window loses focus
-                if (pressedKeys.size > 0 && socket && socket.readyState === WebSocket.OPEN) {
-                    const keysToRelease = Array.from(pressedKeys);
-                    keysToRelease.forEach(key => {
-                        socket.send(JSON.stringify({
-                            type: 'keyUp',
-                            key: key
-                        }));
+                if (pressedKeys.size > 0) {
+                    Array.from(pressedKeys).forEach(key => {
+                        if (socket.readyState === WebSocket.OPEN) {
+                            socket.send(JSON.stringify({
+                                type: 'keyUp',
+                                key: key
+                            }));
+                        }
                     });
                     pressedKeys.clear();
-                    keyStateInfo.textContent = `Keys held: 0`;
+                    updateKeyStateInfo();
                 }
             });
         }
@@ -611,11 +611,14 @@
             connect();
             
             // Key state update loop
-            function keyUpdateLoop() {
-                updateKeyStates();
-                requestAnimationFrame(keyUpdateLoop);
+            function keyStateLoop() {
+                const now = Date.now();
+                if (now - lastKeyStateUpdate >= keyStateUpdateInterval) {
+                    sendKeyStateToServer();
+                    lastKeyStateUpdate = now;
+                }
+                requestAnimationFrame(keyStateLoop);
             }
-            keyUpdateLoop();
             
             // Frame rendering loop
             function renderLoop() {
@@ -625,6 +628,8 @@
                 }
                 requestAnimationFrame(renderLoop);
             }
+            
+            keyStateLoop();
             renderLoop();
         }
 
