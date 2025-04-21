@@ -19,7 +19,6 @@
             display: flex;
             flex-direction: column;
             user-select: none;
-            -webkit-tap-highlight-color: transparent;
         }
         #header {
             background-color: #fff;
@@ -28,17 +27,11 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            position: relative;
-            z-index: 100;
         }
         #title {
             margin: 0;
             color: #333;
             font-size: 1.2em;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 50%;
         }
         #controls {
             display: flex;
@@ -51,8 +44,6 @@
             cursor: pointer;
             font-weight: 500;
             transition: all 0.2s;
-            min-width: 100px;
-            text-align: center;
         }
         .btn-primary {
             background-color: var(--primary-color);
@@ -105,7 +96,6 @@
             display: flex;
             flex-direction: column;
             gap: 4px;
-            z-index: 50;
         }
         .stat {
             display: flex;
@@ -151,7 +141,6 @@
             font-size: 20px;
             cursor: pointer;
             display: none;
-            backdrop-filter: blur(5px);
         }
         #latencyWarning {
             position: absolute;
@@ -163,14 +152,12 @@
             border-radius: 3px;
             font-family: monospace;
             display: none;
-            z-index: 50;
         }
         .status {
             padding: 5px 10px;
             border-radius: 3px;
             font-size: 0.9em;
             margin-left: 15px;
-            white-space: nowrap;
         }
         .connected {
             background-color: var(--success-color);
@@ -191,37 +178,15 @@
             font-family: 'Roboto Mono', monospace;
             font-size: 12px;
             display: none;
-            z-index: 50;
-        }
-        #connectionStatus {
-            display: flex;
-            align-items: center;
-        }
-        @media (max-width: 768px) {
-            #title {
-                max-width: 40%;
-                font-size: 1em;
-            }
-            .btn {
-                padding: 6px 10px;
-                min-width: 80px;
-                font-size: 0.9em;
-            }
-            .status {
-                font-size: 0.8em;
-                margin-left: 8px;
-            }
         }
     </style>
 </head>
 <body>
     <div id="header">
         <h1 id="title">Secure Gaming Remote Control</h1>
-        <div id="connectionStatus">
-            <div id="controls">
-                <button id="fullscreenBtn" class="btn btn-primary">Fullscreen</button>
-                <button id="disconnectBtn" class="btn btn-danger">Disconnect</button>
-            </div>
+        <div id="controls">
+            <button id="fullscreenBtn" class="btn btn-primary">Fullscreen</button>
+            <button id="disconnectBtn" class="btn btn-danger">Disconnect</button>
         </div>
     </div>
     <div id="screenContainer">
@@ -275,9 +240,6 @@
         let pendingFrame = null;
         let isRendering = false;
         let highLatencyMode = false;
-        let reconnectAttempts = 0;
-        const maxReconnectAttempts = 5;
-        const reconnectDelay = 3000;
         
         // Key state tracking
         const pressedKeys = new Set();
@@ -287,26 +249,16 @@
         // Special keys that should be ignored
         const ignoredKeys = new Set([
             'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-            'Alt', 'Control', 'Meta', 'Shift', 'CapsLock', 'Tab', 'Escape', 'ContextMenu'
+            'Alt', 'Control', 'Meta', 'Shift', 'CapsLock', 'Tab', 'Escape'
         ]);
-
-        // Determine WebSocket protocol based on current page protocol
-        function getWebSocketUrl() {
-            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            const host = window.location.hostname === 'localhost' ? 
-                'localhost:8080' : 
-                window.location.host;
-            return `${protocol}${host}`;
-        }
 
         // Connect to WebSocket server
         function connect() {
-            const wsUrl = getWebSocketUrl();
-            console.log(`Connecting to WebSocket at: ${wsUrl}`);
-            socket = new WebSocket(wsUrl);
+            // Use wss:// protocol for secure connection
+            const host = window.location.hostname;
+            socket = new WebSocket(`wss://${host}:8080`);
             
             socket.addEventListener('open', () => {
-                reconnectAttempts = 0;
                 updateStatus('Connected', 'connected');
                 remoteCursor.style.display = 'block';
                 keyStateInfo.style.display = 'block';
@@ -319,37 +271,33 @@
 
         // Handle incoming messages
         function handleMessage(event) {
-            try {
-                const data = JSON.parse(event.data);
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'screen') {
+                const now = Date.now();
+                const latency = now - data.timestamp;
                 
-                if (data.type === 'screen') {
-                    const now = Date.now();
-                    const latency = now - data.timestamp;
-                    
-                    // Enter high latency mode if latency > 300ms
-                    highLatencyMode = latency > 300;
-                    latencyWarning.style.display = highLatencyMode ? 'block' : 'none';
-                    
-                    // In high latency mode, we prioritize newest frames only
-                    if (highLatencyMode) {
-                        if (!isRendering && (!pendingFrame || data.timestamp > pendingFrame.timestamp)) {
-                            pendingFrame = data;
-                            processNextFrame();
-                        }
-                    } else {
-                        if (!pendingFrame || data.timestamp > pendingFrame.timestamp) {
-                            pendingFrame = data;
-                        }
-                        
-                        if (!isRendering) {
-                            processNextFrame();
-                        }
+                // Enter high latency mode if latency > 300ms
+                highLatencyMode = latency > 300;
+                latencyWarning.style.display = highLatencyMode ? 'block' : 'none';
+                
+                // In high latency mode, we prioritize newest frames only
+                if (highLatencyMode) {
+                    if (!isRendering && (!pendingFrame || data.timestamp > pendingFrame.timestamp)) {
+                        pendingFrame = data;
+                        processNextFrame();
+                    }
+                } else {
+                    if (!pendingFrame || data.timestamp > pendingFrame.timestamp) {
+                        pendingFrame = data;
                     }
                     
-                    updateStats(data, latency);
+                    if (!isRendering) {
+                        processNextFrame();
+                    }
                 }
-            } catch (error) {
-                console.error('Error processing message:', error);
+                
+                updateStats(data, latency);
             }
         }
 
@@ -371,47 +319,35 @@
             isRendering = true;
             lastRenderedFrameTime = data.timestamp;
             
-            try {
-                const byteCharacters = atob(data.data);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+            const byteCharacters = atob(data.data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            
+            const img = isFullscreen ? fullscreenImage : screenView;
+            img.onload = () => {
+                cleanupPreviousImage();
+                currentImageUrl = url;
+                
+                if (screenView.naturalWidth > 0) {
+                    scaleFactor = screenView.clientWidth / screenView.naturalWidth;
+                    updateResolution();
                 }
-                const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], { type: 'image/jpeg' });
-                const url = URL.createObjectURL(blob);
                 
-                const img = isFullscreen ? fullscreenImage : screenView;
-                img.onload = () => {
-                    cleanupPreviousImage();
-                    currentImageUrl = url;
-                    
-                    if (screenView.naturalWidth > 0) {
-                        scaleFactor = screenView.clientWidth / screenView.naturalWidth;
-                        updateResolution();
-                    }
-                    
-                    isRendering = false;
-                    
-                    if (!highLatencyMode) {
-                        processNextFrame();
-                    }
-                };
-                
-                img.onerror = () => {
-                    console.error('Error loading frame image');
-                    isRendering = false;
-                    processNextFrame();
-                };
-                
-                img.src = url;
-                if (isFullscreen) {
-                    fullscreenImage.src = url;
-                }
-            } catch (error) {
-                console.error('Error processing frame:', error);
                 isRendering = false;
-                processNextFrame();
+                
+                if (!highLatencyMode) {
+                    processNextFrame();
+                }
+            };
+            
+            img.src = url;
+            if (isFullscreen) {
+                fullscreenImage.src = url;
             }
         }
 
@@ -448,20 +384,11 @@
             keyStateInfo.style.display = 'none';
             pressedKeys.clear();
             updateKeyStateInfo();
-            
-            if (reconnectAttempts < maxReconnectAttempts) {
-                reconnectAttempts++;
-                const delay = reconnectAttempts * reconnectDelay;
-                console.log(`Reconnecting attempt ${reconnectAttempts} in ${delay}ms`);
-                setTimeout(connect, delay);
-            } else {
-                console.log('Max reconnection attempts reached');
-            }
+            setTimeout(connect, 5000);
         }
 
         // Handle errors
         function handleError(event) {
-            console.error('WebSocket error:', event);
             updateStatus('Connection Error', 'disconnected');
             remoteCursor.style.display = 'none';
             keyStateInfo.style.display = 'none';
@@ -473,7 +400,7 @@
             if (!statusElement) {
                 statusElement = document.createElement('div');
                 statusElement.className = 'status';
-                document.getElementById('connectionStatus').prepend(statusElement);
+                document.getElementById('header').appendChild(statusElement);
             }
             statusElement.textContent = text;
             statusElement.className = `status ${className}`;
@@ -533,42 +460,30 @@
 
         // Send mouse events to server
         function sendMouseMove(x, y) {
-            try {
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
-                        type: 'mouseMove',
-                        x: x,
-                        y: y
-                    }));
-                }
-            } catch (error) {
-                console.error('Error sending mouse move:', error);
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'mouseMove',
+                    x: x,
+                    y: y
+                }));
             }
         }
 
         function sendMouseDown(button) {
-            try {
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
-                        type: 'mouseDown',
-                        button: button
-                    }));
-                }
-            } catch (error) {
-                console.error('Error sending mouse down:', error);
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'mouseDown',
+                    button: button
+                }));
             }
         }
 
         function sendMouseUp(button) {
-            try {
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
-                        type: 'mouseUp',
-                        button: button
-                    }));
-                }
-            } catch (error) {
-                console.error('Error sending mouse up:', error);
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'mouseUp',
+                    button: button
+                }));
             }
         }
 
@@ -581,15 +496,11 @@
         }
 
         function sendKeyStateToServer() {
-            try {
-                if (socket.readyState === WebSocket.OPEN && pressedKeys.size > 0) {
-                    socket.send(JSON.stringify({
-                        type: 'keyState',
-                        keys: Array.from(pressedKeys)
-                    }));
-                }
-            } catch (error) {
-                console.error('Error sending key state:', error);
+            if (socket.readyState === WebSocket.OPEN && pressedKeys.size > 0) {
+                socket.send(JSON.stringify({
+                    type: 'keyState',
+                    keys: Array.from(pressedKeys)
+                }));
             }
         }
 
@@ -604,14 +515,10 @@
                 pressedKeys.add(e.key);
                 updateKeyStateInfo();
                 // Immediately send key down
-                try {
-                    socket.send(JSON.stringify({
-                        type: 'keyDown',
-                        key: e.key
-                    }));
-                } catch (error) {
-                    console.error('Error sending key down:', error);
-                }
+                socket.send(JSON.stringify({
+                    type: 'keyDown',
+                    key: e.key
+                }));
             }
         }
 
@@ -625,15 +532,11 @@
                 pressedKeys.delete(e.key);
                 updateKeyStateInfo();
                 // Immediately send key up
-                try {
-                    if (socket && socket.readyState === WebSocket.OPEN) {
-                        socket.send(JSON.stringify({
-                            type: 'keyUp',
-                            key: e.key
-                        }));
-                    }
-                } catch (error) {
-                    console.error('Error sending key up:', error);
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'keyUp',
+                        key: e.key
+                    }));
                 }
             }
         }
@@ -690,17 +593,12 @@
             window.addEventListener('blur', () => {
                 // Release all keys when window loses focus
                 if (pressedKeys.size > 0) {
-                    const keysToRelease = Array.from(pressedKeys);
-                    keysToRelease.forEach(key => {
-                        try {
-                            if (socket && socket.readyState === WebSocket.OPEN) {
-                                socket.send(JSON.stringify({
-                                    type: 'keyUp',
-                                    key: key
-                                }));
-                            }
-                        } catch (error) {
-                            console.error('Error releasing key on blur:', error);
+                    Array.from(pressedKeys).forEach(key => {
+                        if (socket.readyState === WebSocket.OPEN) {
+                            socket.send(JSON.stringify({
+                                type: 'keyUp',
+                                key: key
+                            }));
                         }
                     });
                     pressedKeys.clear();
