@@ -3,17 +3,10 @@ const express = require('express');
 const { exec } = require('child_process');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const https = require('https');
 const path = require('path');
 
 const app = express();
-const PORT = 443; // Standard HTTPS port
-
-// SSL Certificate (self-signed for development)
-const serverOptions = {
-    key: fs.readFileSync(path.join(__dirname, 'key.pem')),
-    cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
-};
+const PORT = 8080; // Using port 8080 instead of 443
 
 // Serve static files
 app.use(express.static('public'));
@@ -22,12 +15,12 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/client.html'));
 });
 
-// Create HTTPS server
-const server = https.createServer(serverOptions, app).listen(PORT, () => {
-    console.log(`Secure server running on https://localhost:${PORT}`);
+// Create HTTP server on port 8080
+const server = app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
 });
 
-// Create secure WebSocket server
+// Create WebSocket server
 const wss = new WebSocket.Server({ server });
 
 // Track pressed keys on server
