@@ -255,7 +255,7 @@
         // Connect to WebSocket server
         function connect() {
             // Use wss:// protocol for secure connection
-            const host = window.location.hostname;
+            const host = chatt.loca.lt;
             socket = new WebSocket(`wss://${host}:8080`);
             
             socket.addEventListener('open', () => {
