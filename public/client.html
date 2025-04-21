@@ -254,9 +254,10 @@
 
         // Connect to WebSocket server
         function connect() {
-            // Use wss:// protocol for secure connection
-            const host = 'chatt.loca.lt';
-            socket = new WebSocket(`wss://${host}:8080`);
+            // Use wss:// instead of ws:// for secure connection
+            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const host = window.location.host || 'chatt.loca.lt';
+            socket = new WebSocket(`${protocol}${host}`);
             
             socket.addEventListener('open', () => {
                 updateStatus('Connected', 'connected');
