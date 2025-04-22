@@ -1,11 +1,23 @@
+const fs = require('fs');
+const https = require('https');
 const WebSocket = require('ws');
 const express = require('express');
 const { exec } = require('child_process');
-const fs = require('fs');
 const { spawn } = require('child_process');
 
 const app = express();
-const PORT = 8080;
+const PORT = 443; // Standard HTTPS port
+
+// SSL Certificate (generate self-signed if needed)
+const privateKey = fs.readFileSync('/etc/letsencrypt/live/yourdomain.com/privkey.pem', 'utf8');
+const certificate = fs.readFileSync('/etc/letsencrypt/live/yourdomain.com/cert.pem', 'utf8');
+const ca = fs.readFileSync('/etc/letsencrypt/live/yourdomain.com/chain.pem', 'utf8');
+
+const credentials = {
+    key: privateKey,
+    cert: certificate,
+    ca: ca
+};
 
 app.use(express.static('public'));
 
@@ -13,32 +25,25 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/client.html');
 });
 
-const server = app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+const httpsServer = https.createServer(credentials, app);
+httpsServer.listen(PORT, () => {
+    console.log(`Secure server running on https://localhost:${PORT}`);
 });
 
-const wss = new WebSocket.Server({ server, perMessageDeflate: false });
+const wss = new WebSocket.Server({ 
+    server: httpsServer,
+    perMessageDeflate: false 
+});
 
-// Performance optimizations
+// Track active keys
 const activeKeys = new Set();
-let lastFrameSent = 0;
-let frameInterval = 33; // ~30fps
 
-// Ultra-fast screen capture (maim with lowest quality)
+// Optimized screen capture
 async function captureScreen() {
     return new Promise((resolve, reject) => {
         const filename = `/tmp/screenshot_${Date.now()}.jpg`;
-        exec(`maim --quality 2 --delay 0.02 ${filename}`, (error) => {
-            if (error) {
-                exec(`scrot -o -q 10 ${filename}`, (error) => {
-                    if (error) return reject(error);
-                    fs.readFile(filename, (err, data) => {
-                        fs.unlink(filename, () => {});
-                        err ? reject(err) : resolve(data);
-                    });
-                });
-                return;
-            }
+        exec(`maim --quality 3 ${filename}`, (error) => {
+            if (error) return reject(error);
             fs.readFile(filename, (err, data) => {
                 fs.unlink(filename, () => {});
                 err ? reject(err) : resolve(data);
@@ -48,51 +53,36 @@ async function captureScreen() {
 }
 
 // Input handlers
-function moveMouse(x, y) { spawn('xdotool', ['mousemove', '--', x, y]); }
+function moveMouse(x, y) { spawn('xdotool', ['mousemove', x, y]); }
 function mouseClick(button) { spawn('xdotool', ['click', button]); }
 function keyDown(key) { 
     if (!activeKeys.has(key)) {
         activeKeys.add(key);
-        spawn('xdotool', ['keydown', key]);
+        spawn('xdotool', ['keydown', key]); 
     }
 }
 function keyUp(key) { 
     if (activeKeys.has(key)) {
         activeKeys.delete(key);
-        spawn('xdotool', ['keyup', key]);
-    }
-}
-
-// Frame sending loop
-async function sendFrames(ws) {
-    try {
-        const now = Date.now();
-        if (now - lastFrameSent >= frameInterval) {
-            const frame = await captureScreen();
-            ws.send(frame, { binary: true }); // Send raw binary for lowest latency
-            lastFrameSent = now;
-        }
-    } catch (error) {
-        console.error('Frame error:', error);
+        spawn('xdotool', ['keyup', key]); 
     }
 }
 
 wss.on('connection', (ws) => {
-    console.log('Client connected');
+    console.log('Secure client connected');
     ws.binaryType = 'arraybuffer';
-    let frameIntervalId;
-
-    // Dynamic frame rate adjustment
-    const adjustFrameRate = () => {
-        frameInterval = Math.max(16, Math.min(50, frameInterval)); // 20-60fps range
-    };
-
-    // Start sending frames immediately
-    const sendFrameLoop = () => {
-        sendFrames(ws);
-        frameIntervalId = setTimeout(sendFrameLoop, frameInterval);
-    };
-    sendFrameLoop();
+    
+    // 20fps frame rate (50ms interval)
+    const frameInterval = setInterval(async () => {
+        try {
+            const frame = await captureScreen();
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(frame);
+            }
+        } catch (error) {
+            console.error('Capture error:', error);
+        }
+    }, 50);
 
     ws.on('message', (message) => {
         try {
@@ -102,9 +92,6 @@ wss.on('connection', (ws) => {
                 case 'mouseClick': mouseClick(data.button); break;
                 case 'keyDown': keyDown(data.key); break;
                 case 'keyUp': keyUp(data.key); break;
-                case 'latencyReport': 
-                    adjustFrameRate();
-                    break;
             }
         } catch (error) {
             console.error('Message error:', error);
@@ -113,12 +100,12 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         console.log('Client disconnected');
-        clearTimeout(frameIntervalId);
+        clearInterval(frameInterval);
         activeKeys.forEach(key => keyUp(key));
     });
 
     ws.on('error', (error) => {
         console.error('WebSocket error:', error);
-        clearTimeout(frameIntervalId);
+        clearInterval(frameInterval);
     });
 });
