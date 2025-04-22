@@ -3,307 +3,265 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Gaming Remote Control</title>
+    <title>Ultra-Low Latency Remote</title>
     <style>
-        :root {
-            --primary-color: #4285f4;
-            --danger-color: #ea4335;
-            --success-color: #34a853;
-        }
         body {
-            font-family: 'Roboto', Arial, sans-serif;
             margin: 0;
             padding: 0;
-            background-color: #f5f5f5;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            user-select: none;
-        }
-        #header {
-            background-color: #fff;
-            padding: 10px 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        #title {
-            margin: 0;
-            color: #333;
-            font-size: 1.2em;
-        }
-        #controls {
-            display: flex;
-            gap: 10px;
-        }
-        .btn {
-            padding: 8px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .btn-primary {
-            background-color: var(--primary-color);
-            color: white;
-        }
-        .btn-danger {
-            background-color: var(--danger-color);
-            color: white;
-        }
-        .btn:hover {
-            opacity: 0.9;
-            transform: translateY(-1px);
-        }
-        #screenContainer {
-            flex: 1;
-            position: relative;
+            background: #000;
             overflow: hidden;
-            background-color: #000;
+            font-family: Arial, sans-serif;
         }
-        #screenView {
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #screen {
             width: 100%;
             height: 100%;
             object-fit: contain;
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
             image-rendering: pixelated;
-            -ms-interpolation-mode: nearest-neighbor;
-        }
-        #remoteCursor {
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            background-color: red;
-            border-radius: 50%;
-            pointer-events: none;
-            display: none;
-            z-index: 100;
-            transform: translate(-5px, -5px);
         }
         #stats {
             position: absolute;
             top: 10px;
             right: 10px;
-            background-color: rgba(0,0,0,0.7);
-            color: white;
-            padding: 8px 12px;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            padding: 8px;
             border-radius: 4px;
-            font-family: 'Roboto Mono', monospace;
-            font-size: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .stat {
-            display: flex;
-            justify-content: space-between;
-            gap: 15px;
-        }
-        .stat-label {
-            color: #aaa;
-        }
-        .stat-value {
-            font-weight: bold;
-        }
-        #fullscreenOverlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: black;
-            z-index: 1000;
-            display: none;
-        }
-        #fullscreenImage {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
-            image-rendering: pixelated;
-            -ms-interpolation-mode: nearest-neighbor;
-        }
-        #exitFullscreen {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1001;
-            background-color: rgba(255,255,255,0.2);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            font-size: 20px;
-            cursor: pointer;
-            display: none;
-        }
-        #latencyWarning {
-            position: absolute;
-            top: 60px;
-            right: 10px;
-            background-color: rgba(255,165,0,0.8);
-            color: white;
-            padding: 5px 10px;
-            border-radius: 3px;
             font-family: monospace;
-            display: none;
+            font-size: 12px;
         }
-        .status {
-            padding: 5px 10px;
-            border-radius: 3px;
-            font-size: 0.9em;
-            margin-left: 15px;
-        }
-        .connected {
-            background-color: var(--success-color);
-            color: white;
-        }
-        .disconnected {
-            background-color: var(--danger-color);
-            color: white;
-        }
-        #keyStateInfo {
+        #controls {
             position: absolute;
             bottom: 10px;
             left: 10px;
-            background-color: rgba(0,0,0,0.7);
-            color: white;
+            display: flex;
+            gap: 10px;
+        }
+        button {
             padding: 8px 12px;
+            background: #4285f4;
+            color: white;
+            border: none;
             border-radius: 4px;
-            font-family: 'Roboto Mono', monospace;
-            font-size: 12px;
-            display: none;
+            cursor: pointer;
+        }
+        #cursor {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: red;
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-5px, -5px);
         }
     </style>
 </head>
 <body>
-    <div id="header">
-        <h1 id="title">Secure Gaming Remote Control</h1>
-        <div id="controls">
-            <button id="fullscreenBtn" class="btn btn-primary">Fullscreen</button>
-            <button id="disconnectBtn" class="btn btn-danger">Disconnect</button>
-        </div>
-    </div>
-    <div id="screenContainer">
-        <img id="screenView" src="" alt="Remote screen">
-        <div id="remoteCursor"></div>
+    <div id="container">
+        <img id="screen" src="">
+        <div id="cursor"></div>
         <div id="stats">
-            <div class="stat">
-                <span class="stat-label">FPS:</span>
-                <span id="fpsCounter" class="stat-value">0</span>
-            </div>
-            <div class="stat">
-                <span class="stat-label">Latency:</span>
-                <span id="latencyCounter" class="stat-value">0ms</span>
-            </div>
-            <div class="stat">
-                <span class="stat-label">Resolution:</span>
-                <span id="resolutionCounter" class="stat-value">0x0</span>
-            </div>
+            <div>FPS: <span id="fps">0</span></div>
+            <div>Latency: <span id="latency">0ms</span></div>
         </div>
-        <div id="latencyWarning">High Latency: Dropping Frames</div>
-        <div id="keyStateInfo">Keys held: none</div>
-    </div>
-    <div id="fullscreenOverlay">
-        <img id="fullscreenImage" src="" alt="Remote screen fullscreen">
-        <button id="exitFullscreen">✕</button>
+        <div id="controls">
+            <button id="fullscreen">Fullscreen</button>
+            <button id="disconnect">Disconnect</button>
+        </div>
     </div>
 
     <script>
-        // DOM Elements
-        const screenView = document.getElementById('screenView');
-        const remoteCursor = document.getElementById('remoteCursor');
-        const fpsCounter = document.getElementById('fpsCounter');
-        const latencyCounter = document.getElementById('latencyCounter');
-        const resolutionCounter = document.getElementById('resolutionCounter');
-        const fullscreenBtn = document.getElementById('fullscreenBtn');
-        const disconnectBtn = document.getElementById('disconnectBtn');
-        const fullscreenOverlay = document.getElementById('fullscreenOverlay');
-        const fullscreenImage = document.getElementById('fullscreenImage');
-        const exitFullscreen = document.getElementById('exitFullscreen');
-        const latencyWarning = document.getElementById('latencyWarning');
-        const keyStateInfo = document.getElementById('keyStateInfo');
+        // Core elements
+        const screen = document.getElementById('screen');
+        const cursor = document.getElementById('cursor');
+        const fpsDisplay = document.getElementById('fps');
+        const latencyDisplay = document.getElementById('latency');
+        const fullscreenBtn = document.getElementById('fullscreen');
+        const disconnectBtn = document.getElementById('disconnect');
 
-        // State variables
+        // State
         let socket;
-        let scaleFactor = 1;
-        let isMouseDown = false;
-        let currentImageUrl = null;
-        let isFullscreen = false;
+        let scale = 1;
         let frameTimes = [];
-        let lastRenderedFrameTime = 0;
-        let pendingFrame = null;
-        let isRendering = false;
-        let highLatencyMode = false;
-        
-        // Key state tracking
-        const pressedKeys = new Set();
-        let lastKeyStateUpdate = 0;
-        const keyStateUpdateInterval = 50; // ms between key state updates
-        
-        // Special keys that should be ignored
-        const ignoredKeys = new Set([
-            'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-            'Alt', 'Control', 'Meta', 'Shift', 'CapsLock', 'Tab', 'Escape'
-        ]);
+        let lastLatencyReport = 0;
+        const activeKeys = new Set();
 
-        // Connect to WebSocket server
+        // Connect with auto-reconnect
         function connect() {
-            // Use wss:// if page is loaded over https, otherwise ws://
-            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            // Use current host or fallback to localhost:8080
-            const host = window.location.host || 'localhost:8080';
-            socket = new WebSocket(`${protocol}${host}`);
-            
-            socket.addEventListener('open', () => {
-                updateStatus('Connected', 'connected');
-                remoteCursor.style.display = 'block';
-                keyStateInfo.style.display = 'block';
-            });
-            
-            socket.addEventListener('message', handleMessage);
-            socket.addEventListener('close', handleDisconnect);
-            socket.addEventListener('error', handleError);
+            socket = new WebSocket('ws://chatt.loca.lt');
+            socket.binaryType = 'arraybuffer';
+
+            socket.onopen = () => {
+                cursor.style.display = 'block';
+                startLatencyReports();
+            };
+
+            socket.onmessage = (e) => {
+                const frameTime = Date.now();
+                const blob = new Blob([e.data], { type: 'image/jpeg' });
+                const url = URL.createObjectURL(blob);
+                
+                screen.onload = () => {
+                    if (screen.naturalWidth) {
+                        scale = screen.clientWidth / screen.naturalWidth;
+                    }
+                    URL.revokeObjectURL(screen.src);
+                    updateFPS();
+                };
+                screen.src = url;
+            };
+
+            socket.onclose = () => {
+                cursor.style.display = 'none';
+                releaseAllKeys();
+                setTimeout(connect, 1000);
+            };
+
+            socket.onerror = () => {
+                cursor.style.display = 'none';
+                releaseAllKeys();
+            };
         }
 
-        // [Rest of the client-side JavaScript remains exactly the same as previous version]
-        // ... (all other functions stay identical)
-        
-        // Initialize the application
-        function init() {
-            initEventListeners();
-            connect();
-            
-            // Key state update loop
-            function keyStateLoop() {
+        // Latency measurement
+        function startLatencyReports() {
+            setInterval(() => {
                 const now = Date.now();
-                if (now - lastKeyStateUpdate >= keyStateUpdateInterval) {
-                    sendKeyStateToServer();
-                    lastKeyStateUpdate = now;
+                if (now - lastLatencyReport > 1000 && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'latencyReport',
+                        timestamp: now
+                    }));
+                    lastLatencyReport = now;
                 }
-                requestAnimationFrame(keyStateLoop);
-            }
-            
-            // Frame rendering loop
-            function renderLoop() {
-                if (highLatencyMode && pendingFrame) {
-                    processFrame(pendingFrame);
-                    pendingFrame = null;
-                }
-                requestAnimationFrame(renderLoop);
-            }
-            
-            keyStateLoop();
-            renderLoop();
+            }, 100);
         }
 
-        // Start the application
-        init();
+        // FPS counter
+        function updateFPS() {
+            const now = performance.now();
+            frameTimes.push(now);
+            frameTimes = frameTimes.filter(t => now - t < 1000);
+            fpsDisplay.textContent = frameTimes.length;
+        }
+
+        // Mouse handling
+        screen.onmousemove = (e) => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            const rect = screen.getBoundingClientRect();
+            const x = Math.round((e.clientX - rect.left) / scale);
+            const y = Math.round((e.clientY - rect.top) / scale);
+            
+            cursor.style.left = `${e.clientX}px`;
+            cursor.style.top = `${e.clientY}px`;
+            
+            socket.send(JSON.stringify({
+                type: 'mouseMove',
+                x: x,
+                y: y
+            }));
+        };
+
+        screen.onmousedown = (e) => {
+            e.preventDefault();
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            const button = e.button === 0 ? 1 : (e.button === 2 ? 3 : e.button);
+            socket.send(JSON.stringify({
+                type: 'mouseClick',
+                button: button
+            }));
+        };
+
+        screen.oncontextmenu = (e) => e.preventDefault();
+
+        // Keyboard handling
+        document.onkeydown = (e) => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            const key = getKeyCode(e);
+            if (key && !activeKeys.has(key)) {
+                activeKeys.add(key);
+                socket.send(JSON.stringify({
+                    type: 'keyDown',
+                    key: key
+                }));
+            }
+            e.preventDefault();
+        };
+
+        document.onkeyup = (e) => {
+            const key = getKeyCode(e);
+            if (key && activeKeys.has(key)) {
+                activeKeys.delete(key);
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'keyUp',
+                        key: key
+                    }));
+                }
+            }
+        };
+
+        window.onblur = releaseAllKeys;
+
+        function getKeyCode(e) {
+            // Special keys mapping
+            const specialKeys = {
+                ' ': 'space',
+                'Control': 'ctrl',
+                'Shift': 'shift',
+                'Alt': 'alt',
+                'Meta': 'meta',
+                'ArrowUp': 'Up',
+                'ArrowDown': 'Down',
+                'ArrowLeft': 'Left',
+                'ArrowRight': 'Right',
+                'Escape': 'Escape',
+                'Enter': 'Return',
+                'Backspace': 'BackSpace',
+                'Tab': 'Tab',
+                'CapsLock': 'Caps_Lock'
+            };
+            return specialKeys[e.key] || (e.key.length === 1 ? e.key : null);
+        }
+
+        function releaseAllKeys() {
+            activeKeys.forEach(key => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'keyUp',
+                        key: key
+                    }));
+                }
+            });
+            activeKeys.clear();
+        }
+
+        // Fullscreen
+        fullscreenBtn.onclick = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        };
+
+        // Disconnect
+        disconnectBtn.onclick = () => {
+            if (socket) {
+                socket.close();
+            }
+        };
+
+        // Start
+        connect();
     </script>
 </body>
 </html>
