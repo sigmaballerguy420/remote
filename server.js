@@ -3,143 +3,107 @@ const express = require('express');
 const { exec } = require('child_process');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const path = require('path');
 
 const app = express();
-const PORT = 8080; // Using port 8080 instead of 443
+const PORT = 8080;
 
-// Serve static files
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/client.html'));
+    res.sendFile(__dirname + '/public/client.html');
 });
 
-// Create HTTP server on port 8080
 const server = app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
 
-// Create WebSocket server
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ server, perMessageDeflate: false });
 
-// Track pressed keys on server
-const pressedKeys = new Set();
+// Performance optimizations
+const activeKeys = new Set();
+let lastFrameSent = 0;
+let frameInterval = 33; // ~30fps
 
-// Optimized screen capture
+// Ultra-fast screen capture (maim with lowest quality)
 async function captureScreen() {
-    const timestamp = Date.now();
-    const filename = `/tmp/screenshot_${timestamp}.jpg`;
-    
     return new Promise((resolve, reject) => {
-        exec(`maim --quality 5 --delay 0.1 ${filename}`, (error) => {
+        const filename = `/tmp/screenshot_${Date.now()}.jpg`;
+        exec(`maim --quality 2 --delay 0.02 ${filename}`, (error) => {
             if (error) {
-                exec(`scrot -o -q 50 ${filename}`, (error) => {
+                exec(`scrot -o -q 10 ${filename}`, (error) => {
                     if (error) return reject(error);
-                    readAndSend(filename, resolve, reject);
+                    fs.readFile(filename, (err, data) => {
+                        fs.unlink(filename, () => {});
+                        err ? reject(err) : resolve(data);
+                    });
                 });
                 return;
             }
-            readAndSend(filename, resolve, reject);
+            fs.readFile(filename, (err, data) => {
+                fs.unlink(filename, () => {});
+                err ? reject(err) : resolve(data);
+            });
         });
     });
 }
 
-function readAndSend(filename, resolve, reject) {
-    fs.readFile(filename, (err, data) => {
-        fs.unlink(filename, () => {});
-        err ? reject(err) : resolve(data);
-    });
-}
-
-// Input control functions
+// Input handlers
 function moveMouse(x, y) { spawn('xdotool', ['mousemove', '--', x, y]); }
-function mouseClick(button) { spawn('xdotool', ['click', '--sync', button]); }
-function mouseDown(button) { spawn('xdotool', ['mousedown', button]); }
-function mouseUp(button) { spawn('xdotool', ['mouseup', button]); }
-
-function sendKeys(keys) {
-    spawn('xdotool', ['getactivewindow', 'windowfocus', '--sync']);
-    keys.forEach(key => {
+function mouseClick(button) { spawn('xdotool', ['click', button]); }
+function keyDown(key) { 
+    if (!activeKeys.has(key)) {
+        activeKeys.add(key);
         spawn('xdotool', ['keydown', key]);
-    });
+    }
+}
+function keyUp(key) { 
+    if (activeKeys.has(key)) {
+        activeKeys.delete(key);
+        spawn('xdotool', ['keyup', key]);
+    }
 }
 
-function releaseKeys(keys) {
-    keys.forEach(key => {
-        spawn('xdotool', ['keyup', key]);
-    });
+// Frame sending loop
+async function sendFrames(ws) {
+    try {
+        const now = Date.now();
+        if (now - lastFrameSent >= frameInterval) {
+            const frame = await captureScreen();
+            ws.send(frame, { binary: true }); // Send raw binary for lowest latency
+            lastFrameSent = now;
+        }
+    } catch (error) {
+        console.error('Frame error:', error);
+    }
 }
 
 wss.on('connection', (ws) => {
     console.log('Client connected');
-    
-    // Release any stuck keys when new client connects
-    if (pressedKeys.size > 0) {
-        releaseKeys(Array.from(pressedKeys));
-        pressedKeys.clear();
-    }
-    
-    // Start capture loop at 10fps
-    const captureInterval = setInterval(async () => {
-        try {
-            const frame = await captureScreen();
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'screen',
-                    data: frame.toString('base64'),
-                    timestamp: Date.now()
-                }));
-            }
-        } catch (error) {
-            console.error('Capture error:', error);
-        }
-    }, 100);
-    
+    ws.binaryType = 'arraybuffer';
+    let frameIntervalId;
+
+    // Dynamic frame rate adjustment
+    const adjustFrameRate = () => {
+        frameInterval = Math.max(16, Math.min(50, frameInterval)); // 20-60fps range
+    };
+
+    // Start sending frames immediately
+    const sendFrameLoop = () => {
+        sendFrames(ws);
+        frameIntervalId = setTimeout(sendFrameLoop, frameInterval);
+    };
+    sendFrameLoop();
+
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
-            
             switch(data.type) {
-                case 'mouseMove':
-                    moveMouse(data.x, data.y);
-                    break;
-                case 'mouseClick':
-                    mouseClick(data.button);
-                    break;
-                case 'mouseDown':
-                    mouseDown(data.button);
-                    break;
-                case 'mouseUp':
-                    mouseUp(data.button);
-                    break;
-                case 'keyDown':
-                    if (!pressedKeys.has(data.key)) {
-                        pressedKeys.add(data.key);
-                        spawn('xdotool', ['keydown', data.key]);
-                    }
-                    break;
-                case 'keyUp':
-                    if (pressedKeys.has(data.key)) {
-                        pressedKeys.delete(data.key);
-                        spawn('xdotool', ['keyup', data.key]);
-                    }
-                    break;
-                case 'keyState':
-                    // Sync key states between client and server
-                    const keysToRelease = Array.from(pressedKeys).filter(
-                        k => !data.keys.includes(k));
-                    const keysToPress = data.keys.filter(
-                        k => !pressedKeys.has(k));
-                    
-                    if (keysToRelease.length > 0) {
-                        releaseKeys(keysToRelease);
-                        keysToRelease.forEach(k => pressedKeys.delete(k));
-                    }
-                    if (keysToPress.length > 0) {
-                        sendKeys(keysToPress);
-                        keysToPress.forEach(k => pressedKeys.add(k));
-                    }
+                case 'mouseMove': moveMouse(data.x, data.y); break;
+                case 'mouseClick': mouseClick(data.button); break;
+                case 'keyDown': keyDown(data.key); break;
+                case 'keyUp': keyUp(data.key); break;
+                case 'latencyReport': 
+                    adjustFrameRate();
                     break;
             }
         } catch (error) {
@@ -149,21 +113,12 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         console.log('Client disconnected');
-        clearInterval(captureInterval);
-        // Release all keys when client disconnects
-        if (pressedKeys.size > 0) {
-            releaseKeys(Array.from(pressedKeys));
-            pressedKeys.clear();
-        }
+        clearTimeout(frameIntervalId);
+        activeKeys.forEach(key => keyUp(key));
     });
 
     ws.on('error', (error) => {
         console.error('WebSocket error:', error);
-        clearInterval(captureInterval);
-        // Release all keys on error
-        if (pressedKeys.size > 0) {
-            releaseKeys(Array.from(pressedKeys));
-            pressedKeys.clear();
-        }
+        clearTimeout(frameIntervalId);
     });
 });
