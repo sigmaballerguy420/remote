@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Remote Control</title>
+    <title>Ultra-Low Latency Remote</title>
     <style>
         body {
             margin: 0;
@@ -57,7 +57,6 @@
             border-radius: 50%;
             pointer-events: none;
             transform: translate(-5px, -5px);
-            display: none;
         }
     </style>
 </head>
@@ -76,9 +75,6 @@
     </div>
 
     <script>
-        // Configuration
-        const WS_URL = 'wss://chatt.loca.lt'; // Must match your SSL domain
-        
         // Core elements
         const screen = document.getElementById('screen');
         const cursor = document.getElementById('cursor');
@@ -91,16 +87,17 @@
         let socket;
         let scale = 1;
         let frameTimes = [];
+        let lastLatencyReport = 0;
         const activeKeys = new Set();
 
-        // Secure WebSocket connection
+        // Connect with auto-reconnect
         function connect() {
-            socket = new WebSocket(WS_URL);
+            socket = new WebSocket('ws://chatt.loca.lt');
             socket.binaryType = 'arraybuffer';
 
             socket.onopen = () => {
-                console.log('Secure WebSocket connected');
                 cursor.style.display = 'block';
+                startLatencyReports();
             };
 
             socket.onmessage = (e) => {
@@ -119,17 +116,29 @@
             };
 
             socket.onclose = () => {
-                console.log('WebSocket disconnected');
                 cursor.style.display = 'none';
                 releaseAllKeys();
                 setTimeout(connect, 1000);
             };
 
-            socket.onerror = (error) => {
-                console.error('WebSocket error:', error);
+            socket.onerror = () => {
                 cursor.style.display = 'none';
                 releaseAllKeys();
             };
+        }
+
+        // Latency measurement
+        function startLatencyReports() {
+            setInterval(() => {
+                const now = Date.now();
+                if (now - lastLatencyReport > 1000 && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'latencyReport',
+                        timestamp: now
+                    }));
+                    lastLatencyReport = now;
+                }
+            }, 100);
         }
 
         // FPS counter
@@ -203,6 +212,7 @@
         window.onblur = releaseAllKeys;
 
         function getKeyCode(e) {
+            // Special keys mapping
             const specialKeys = {
                 ' ': 'space',
                 'Control': 'ctrl',
@@ -250,7 +260,7 @@
             }
         };
 
-        // Start secure connection
+        // Start
         connect();
     </script>
 </body>
